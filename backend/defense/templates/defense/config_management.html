@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}配置管理 - CDN 防御系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>配置管理</h2>
+        <p>管理租户全局配置</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">当前配置 (版本 {{ config.version }})</span>
+    </div>
+
+    <form method="post" onsubmit="return validateConfigForm()">
+        {% csrf_token %}
+
+        <div class="form-group">
+            <label for="rateLimit">速率限制 (请求/秒):</label>
+            <input type="number" id="rateLimit" name="rate_limit" value="{{ config.rate_limit }}" min="100" max="100000" required>
+        </div>
+
+        <div class="form-group">
+            <label for="threatThreshold">威胁阈值 (0-100):</label>
+            <input type="range" id="threatThreshold" name="threat_threshold" value="{{ config.threat_threshold }}" min="0" max="100">
+            <div style="color: #909399; font-size: 12px; margin-top: 5px;">当前: <span id="threatValue">{{ config.threat_threshold }}</span></div>
+        </div>
+
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" name="enabled_defense" {% if config.enabled_defense %}checked{% endif %}>
+                启用防御
+            </label>
+        </div>
+
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" name="js_challenge" {% if config.js_challenge %}checked{% endif %}>
+                启用 JavaScript 挑战
+            </label>
+        </div>
+
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" name="bot_detection" {% if config.bot_detection %}checked{% endif %}>
+                启用机器人检测
+            </label>
+        </div>
+
+        <div>
+            <button type="submit" class="btn btn-primary">保存配置</button>
+            <button type="reset" class="btn btn-default">重置</button>
+        </div>
+    </form>
+</div>
+
+<!-- 配置历史 -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">配置信息</span>
+    </div>
+
+    <table>
+        <tr>
+            <th>字段</th>
+            <th>值</th>
+            <th>更新时间</th>
+        </tr>
+        <tr>
+            <td>速率限制</td>
+            <td>{{ config.rate_limit }} 请求/秒</td>
+            <td>{{ config.updated_at|date:"Y-m-d H:i:s" }}</td>
+        </tr>
+        <tr>
+            <td>威胁阈值</td>
+            <td>{{ config.threat_threshold }}</td>
+            <td>{{ config.updated_at|date:"Y-m-d H:i:s" }}</td>
+        </tr>
+        <tr>
+            <td>防御状态</td>
+            <td>
+                <span class="tag tag-{% if config.enabled_defense %}success{% else %}danger{% endif %}">
+                    {% if config.enabled_defense %}启用{% else %}禁用{% endif %}
+                </span>
+            </td>
+            <td>{{ config.updated_at|date:"Y-m-d H:i:s" }}</td>
+        </tr>
+        <tr>
+            <td>创建时间</td>
+            <td>{{ config.created_at|date:"Y-m-d H:i:s" }}</td>
+            <td></td>
+        </tr>
+    </table>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 动态更新威胁阈值显示
+document.getElementById('threatThreshold').addEventListener('input', function() {
+    document.getElementById('threatValue').textContent = this.value;
+});
+
+function validateConfigForm() {
+    const rateLimit = parseInt(document.getElementById('rateLimit').value);
+    if (rateLimit < 100 || rateLimit > 100000) {
+        alert('速率限制必须在 100 到 100000 之间');
+        return false;
+    }
+    return true;
+}
+</script>
+{% endblock %}

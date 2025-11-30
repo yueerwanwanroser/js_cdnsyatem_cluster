@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block title %}SSL 证书管理 - CDN 防御系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>SSL 证书管理</h2>
+        <p>管理 HTTPS 域名证书</p>
+    </div>
+    <button class="btn btn-primary" onclick="showUploadCertModal()">+ 上传证书</button>
+</div>
+
+<!-- 证书列表 -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">证书列表 (共 {{ certs|length }} 个)</span>
+    </div>
+
+    {% if certs %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>域名</th>
+                        <th>过期时间</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cert in certs %}
+                    <tr>
+                        <td>{{ cert.domain }}</td>
+                        <td>{{ cert.expires_at|date:"Y-m-d H:i:s" }}</td>
+                        <td>
+                            {% if cert.expires_at > now %}
+                                <span class="tag tag-success">有效</span>
+                            {% else %}
+                                <span class="tag tag-danger">已过期</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <button class="btn btn-danger" onclick="deleteCert('{{ cert.cert_id }}')">删除</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div style="text-align: center; padding: 40px; color: #909399;">
+            <p>暂无证书，点击上方 "+ 上传证书" 按钮上传</p>
+        </div>
+    {% endif %}
+</div>
+
+<!-- 上传证书对话框 -->
+<div id="certModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">上传 SSL 证书</div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label for="certDomain">域名:</label>
+                <input type="text" id="certDomain" placeholder="例: api.example.com" required>
+            </div>
+            <div class="form-group">
+                <label for="certContent">证书 (PEM 格式):</label>
+                <textarea id="certContent" rows="6" placeholder="-----BEGIN CERTIFICATE-----..." required></textarea>
+            </div>
+            <div class="form-group">
+                <label for="keyContent">私钥 (PEM 格式):</label>
+                <textarea id="keyContent" rows="6" placeholder="-----BEGIN PRIVATE KEY-----..." required></textarea>
+            </div>
+            <div class="form-group">
+                <label for="certExpires">过期时间:</label>
+                <input type="datetime-local" id="certExpires" required>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-default" onclick="closeCertModal()">取消</button>
+            <button class="btn btn-primary" onclick="uploadCert()">上传</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function showUploadCertModal() {
+    document.getElementById('certDomain').value = '';
+    document.getElementById('certContent').value = '';
+    document.getElementById('keyContent').value = '';
+    document.getElementById('certExpires').value = '';
+    document.getElementById('certModal').classList.add('show');
+}
+
+function uploadCert() {
+    const data = {
+        domain: document.getElementById('certDomain').value,
+        cert: document.getElementById('certContent').value,
+        key: document.getElementById('keyContent').value,
+        expires_at: new Date(document.getElementById('certExpires').value).toISOString(),
+    };
+
+    fetch('/defense/api/ssl/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken'),
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('上传失败');
+        return response.json();
+    })
+    .then(() => {
+        closeCertModal();
+        location.reload();
+    })
+    .catch(error => {
+        alert('错误: ' + error.message);
+    });
+}
+
+function deleteCert(certId) {
+    if (confirm('确定要删除这个证书吗?')) {
+        fetch(`/defense/api/ssl/${certId}/`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken'),
+            }
+        })
+        .then(response => {
+            if (!response.ok) throw new Error('删除失败');
+            location.reload();
+        })
+        .catch(error => {
+            alert('错误: ' + error.message);
+        });
+    }
+}
+
+function closeCertModal() {
+    document.getElementById('certModal').classList.remove('show');
+}
+
+document.getElementById('certModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeCertModal();
+    }
+});
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+</script>
+{% endblock %}

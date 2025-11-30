@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}仪表盘 - CDN 防御系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>仪表盘</h2>
+        <p>系统整体统计和状态概览</p>
+    </div>
+</div>
+
+<!-- 统计卡片 -->
+<div>
+    <div class="stat-card card">
+        <div class="card-header">
+            <span class="card-title">总请求数</span>
+        </div>
+        <div class="stat-value" id="totalRequests">{{ total_requests }}</div>
+        <div class="stat-label">24h</div>
+    </div>
+
+    <div class="stat-card card">
+        <div class="card-header">
+            <span class="card-title">被阻止</span>
+        </div>
+        <div class="stat-value" id="blockedRequests">{{ blocked_requests }}</div>
+        <div class="stat-label">24h</div>
+    </div>
+
+    <div class="stat-card card">
+        <div class="card-header">
+            <span class="card-title">平均威胁分数</span>
+        </div>
+        <div class="stat-value" id="avgThreatScore">{{ avg_threat_score }}</div>
+        <div class="stat-label">0-100</div>
+    </div>
+
+    <div class="stat-card card">
+        <div class="card-header">
+            <span class="card-title">系统状态</span>
+        </div>
+        <div style="margin: 10px 0;">
+            <span class="tag tag-{% if system_health == 'healthy' %}success{% else %}danger{% endif %}">
+                {{ system_health }}
+            </span>
+        </div>
+    </div>
+</div>
+
+<div style="clear: both;"></div>
+
+<!-- 实时监控 -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">实时监控</span>
+        <button class="btn btn-primary" onclick="refreshStats()">刷新</button>
+    </div>
+    <div id="statsContainer">
+        <div style="text-align: center; padding: 20px;">
+            <div class="spinner"></div>
+            <p style="margin-top: 10px;">加载中...</p>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function refreshStats() {
+    fetch('/defense/api/dashboard/stats/')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('totalRequests').textContent = data.total_requests;
+            document.getElementById('blockedRequests').textContent = data.blocked_requests;
+            document.getElementById('avgThreatScore').textContent = data.avg_threat_score;
+        })
+        .catch(error => console.error('Error:', error));
+}
+
+// 每 30 秒自动刷新
+setInterval(refreshStats, 30000);
+
+// 页面加载时刷新
+window.addEventListener('load', refreshStats);
+</script>
+{% endblock %}

@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}统计分析 - CDN 防御系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>统计分析</h2>
+        <p>请求统计和威胁分析</p>
+    </div>
+    <button class="btn btn-primary" onclick="loadStatistics()">刷新</button>
+</div>
+
+<!-- 统计概览 -->
+<div>
+    <div class="stat-card card">
+        <div class="card-header">
+            <span class="card-title">总请求数</span>
+        </div>
+        <div class="stat-value" id="statTotal">0</div>
+        <div class="stat-label">本周</div>
+    </div>
+
+    <div class="stat-card card">
+        <div class="card-header">
+            <span class="card-title">被阻止请求</span>
+        </div>
+        <div class="stat-value" id="statBlocked">0</div>
+        <div class="stat-label">本周</div>
+    </div>
+
+    <div class="stat-card card">
+        <div class="card-header">
+            <span class="card-title">放行请求</span>
+        </div>
+        <div class="stat-value" id="statAllowed">0</div>
+        <div class="stat-label">本周</div>
+    </div>
+
+    <div class="stat-card card">
+        <div class="card-header">
+            <span class="card-title">阻止率</span>
+        </div>
+        <div class="stat-value" id="statBlockRate">0%</div>
+        <div class="stat-label">本周</div>
+    </div>
+</div>
+
+<div style="clear: both;"></div>
+
+<!-- 图表区域 -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">每日请求趋势</span>
+        <select id="daysSelect" onchange="loadStatistics()">
+            <option value="7">最近 7 天</option>
+            <option value="30">最近 30 天</option>
+            <option value="90">最近 90 天</option>
+        </select>
+    </div>
+    <div id="chartContainer" style="height: 300px; padding: 20px; text-align: center;">
+        <div class="spinner"></div>
+        <p>加载图表中...</p>
+    </div>
+</div>
+
+<!-- 被阻止最多的 IP -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">被阻止最多的 IP</span>
+    </div>
+    <div class="table-wrapper">
+        <table id="topIpsTable">
+            <thead>
+                <tr>
+                    <th>IP 地址</th>
+                    <th>被阻止次数</th>
+                </tr>
+            </thead>
+            <tbody id="topIpsBody">
+                <tr>
+                    <td colspan="2" style="text-align: center; padding: 20px;">加载中...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function loadStatistics() {
+    const days = document.getElementById('daysSelect').value;
+    
+    // 加载统计数据
+    fetch(`/defense/api/statistics/?days=${days}`)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('statTotal').textContent = data.total_requests;
+            document.getElementById('statBlocked').textContent = data.blocked_requests;
+            document.getElementById('statAllowed').textContent = data.allowed_requests;
+            document.getElementById('statBlockRate').textContent = data.block_rate + '%';
+            
+            // 简单图表显示（可以集成 ECharts）
+            renderSimpleChart(data.daily_stats);
+        })
+        .catch(error => {
+            console.error('Error loading statistics:', error);
+            document.getElementById('chartContainer').innerHTML = '<p style="color: #f56c6c;">加载失败</p>';
+        });
+    
+    // 加载被阻止最多的 IP
+    fetch('/defense/api/statistics/top-blocked-ips/')
+        .then(response => response.json())
+        .then(data => {
+            const tbody = document.getElementById('topIpsBody');
+            tbody.innerHTML = '';
+            
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="2" style="text-align: center;">暂无数据</td></tr>';
+            } else {
+                data.forEach(item => {
+                    const row = `
+                        <tr>
+                            <td>${item.client_ip || item.ip || 'Unknown'}</td>
+                            <td>${item.count || item.count}</td>
+                        </tr>
+                    `;
+                    tbody.insertAdjacentHTML('beforeend', row);
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error loading top IPs:', error);
+            document.getElementById('topIpsBody').innerHTML = '<tr><td colspan="2" style="text-align: center; color: #f56c6c;">加载失败</td></tr>';
+        });
+}
+
+function renderSimpleChart(dailyStats) {
+    let html = '<div style="text-align: left; padding: 20px;">';
+    html += '<table style="width: 100%; border-collapse: collapse;">';
+    html += '<tr><th>日期</th><th>总数</th><th>被阻止</th><th>放行</th><th>阻止率</th></tr>';
+    
+    dailyStats.forEach(stat => {
+        const blockRate = stat.total > 0 ? Math.round(stat.blocked / stat.total * 100) : 0;
+        html += `
+            <tr>
+                <td>${stat.date}</td>
+                <td>${stat.total}</td>
+                <td>${stat.blocked}</td>
+                <td>${stat.allowed}</td>
+                <td>${blockRate}%</td>
+            </tr>
+        `;
+    });
+    
+    html += '</table></div>';
+    document.getElementById('chartContainer').innerHTML = html;
+}
+
+// 页面加载时刷新
+window.addEventListener('load', loadStatistics);
+</script>
+{% endblock %}

@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}防御策略 - CDN 防御系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>防御策略</h2>
+        <p>为路由配置防御插件和策略</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">新增防御策略</span>
+    </div>
+
+    <form onsubmit="return applyDefense(event)">
+        <div class="form-group">
+            <label for="defenseRoute">选择路由:</label>
+            <select id="defenseRoute" required>
+                <option value="">-- 请选择 --</option>
+                {% for route in routes %}
+                <option value="{{ route.route_id }}">{{ route.route_id }} ({{ route.path }})</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="defenseThreat">威胁阈值:</label>
+            <input type="range" id="defenseThreat" value="75" min="0" max="100">
+            <div style="color: #909399; font-size: 12px; margin-top: 5px;">当前: <span id="threatDisplay">75</span></div>
+        </div>
+
+        <div class="form-group">
+            <label for="challengeType">挑战类型:</label>
+            <select id="challengeType">
+                <option value="js">JavaScript 挑战</option>
+                <option value="slider">滑块验证</option>
+                <option value="captcha">验证码</option>
+            </select>
+        </div>
+
+        <button type="submit" class="btn btn-primary">应用防御</button>
+    </form>
+</div>
+
+<!-- 当前防御策略 -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">已应用的防御策略 (共 {{ policies|length }} 个)</span>
+    </div>
+
+    {% if policies %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>路由 ID</th>
+                        <th>威胁阈值</th>
+                        <th>挑战类型</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for policy in policies %}
+                    <tr>
+                        <td>{{ policy.route.route_id }}</td>
+                        <td>{{ policy.threat_threshold }}</td>
+                        <td>{{ policy.challenge_type }}</td>
+                        <td>
+                            <span class="tag tag-{% if policy.enabled %}success{% else %}danger{% endif %}">
+                                {% if policy.enabled %}启用{% else %}禁用{% endif %}
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn btn-danger" onclick="deletePolicy({{ policy.id }})">删除</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div style="text-align: center; padding: 40px; color: #909399;">
+            <p>暂无防御策略，请在上方表单中创建</p>
+        </div>
+    {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('defenseThreat').addEventListener('input', function() {
+    document.getElementById('threatDisplay').textContent = this.value;
+});
+
+function applyDefense(event) {
+    event.preventDefault();
+    
+    const data = {
+        route_id: document.getElementById('defenseRoute').value,
+        threat_threshold: parseInt(document.getElementById('defenseThreat').value),
+        challenge_type: document.getElementById('challengeType').value,
+    };
+
+    fetch('/defense/api/defense-policies/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken'),
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('应用失败');
+        return response.json();
+    })
+    .then(() => {
+        alert('防御策略已应用');
+        location.reload();
+    })
+    .catch(error => {
+        alert('错误: ' + error.message);
+    });
+
+    return false;
+}
+
+function deletePolicy(policyId) {
+    if (confirm('确定要删除这个防御策略吗?')) {
+        fetch(`/defense/api/defense-policies/${policyId}/`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken'),
+            }
+        })
+        .then(response => {
+            if (!response.ok) throw new Error('删除失败');
+            location.reload();
+        })
+        .catch(error => {
+            alert('错误: ' + error.message);
+        });
+    }
+}
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+</script>
+{% endblock %}

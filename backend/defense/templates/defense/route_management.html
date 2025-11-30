@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}路由管理 - CDN 防御系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>路由管理</h2>
+        <p>管理 API 路由和上游服务器</p>
+    </div>
+    <button class="btn btn-primary" onclick="showAddRouteModal()">+ 添加路由</button>
+</div>
+
+<!-- 路由列表 -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">路由列表 (共 {{ routes|length }} 个)</span>
+    </div>
+
+    {% if routes %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>路由 ID</th>
+                        <th>路径</th>
+                        <th>上游地址</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="routesList">
+                    {% for route in routes %}
+                    <tr>
+                        <td>{{ route.route_id }}</td>
+                        <td>{{ route.path }}</td>
+                        <td>{{ route.upstream }}</td>
+                        <td>
+                            <span class="tag tag-{% if route.enabled %}success{% else %}danger{% endif %}">
+                                {% if route.enabled %}启用{% else %}禁用{% endif %}
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn btn-primary" onclick="editRoute('{{ route.route_id }}')">编辑</button>
+                            <button class="btn btn-danger" onclick="deleteRoute('{{ route.route_id }}')">删除</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div style="text-align: center; padding: 40px; color: #909399;">
+            <p>暂无路由，点击上方 "+ 添加路由" 按钮创建</p>
+        </div>
+    {% endif %}
+</div>
+
+<!-- 添加/编辑路由对话框 -->
+<div id="routeModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header" id="routeModalTitle">添加路由</div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label for="routeId">路由 ID:</label>
+                <input type="text" id="routeId" placeholder="例: api-v1" required>
+            </div>
+            <div class="form-group">
+                <label for="routePath">路径:</label>
+                <input type="text" id="routePath" placeholder="例: /api/v1/*" required>
+            </div>
+            <div class="form-group">
+                <label for="routeUpstream">上游地址:</label>
+                <input type="url" id="routeUpstream" placeholder="例: http://backend:8080" required>
+            </div>
+            <div class="form-group">
+                <label style="display: flex; align-items: center; gap: 10px;">
+                    <input type="checkbox" id="routeEnabled" checked>
+                    启用路由
+                </label>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-default" onclick="closeRouteModal()">取消</button>
+            <button class="btn btn-primary" onclick="saveRoute()">保存</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let editingRouteId = null;
+
+function showAddRouteModal() {
+    editingRouteId = null;
+    document.getElementById('routeModalTitle').textContent = '添加路由';
+    document.getElementById('routeId').value = '';
+    document.getElementById('routePath').value = '';
+    document.getElementById('routeUpstream').value = '';
+    document.getElementById('routeEnabled').checked = true;
+    document.getElementById('routeId').disabled = false;
+    document.getElementById('routeModal').classList.add('show');
+}
+
+function editRoute(routeId) {
+    editingRouteId = routeId;
+    document.getElementById('routeModalTitle').textContent = '编辑路由';
+    
+    // 从表格中获取数据
+    const rows = document.querySelectorAll('#routesList tr');
+    for (let row of rows) {
+        if (row.cells[0].textContent === routeId) {
+            document.getElementById('routeId').value = row.cells[0].textContent;
+            document.getElementById('routePath').value = row.cells[1].textContent;
+            document.getElementById('routeUpstream').value = row.cells[2].textContent;
+            document.getElementById('routeEnabled').checked = row.cells[3].textContent.includes('启用');
+            break;
+        }
+    }
+    
+    document.getElementById('routeId').disabled = true;
+    document.getElementById('routeModal').classList.add('show');
+}
+
+function saveRoute() {
+    const routeId = document.getElementById('routeId').value;
+    const data = {
+        route_id: routeId,
+        path: document.getElementById('routePath').value,
+        upstream: document.getElementById('routeUpstream').value,
+        enabled: document.getElementById('routeEnabled').checked,
+    };
+
+    const url = editingRouteId 
+        ? `/defense/api/routes/${editingRouteId}/`
+        : '/defense/api/routes/';
+    const method = editingRouteId ? 'PUT' : 'POST';
+
+    fetch(url, {
+        method: method,
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken'),
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('保存失败');
+        return response.json();
+    })
+    .then(() => {
+        closeRouteModal();
+        location.reload();
+    })
+    .catch(error => {
+        alert('错误: ' + error.message);
+    });
+}
+
+function deleteRoute(routeId) {
+    if (confirm('确定要删除这个路由吗?')) {
+        fetch(`/defense/api/routes/${routeId}/`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken'),
+            }
+        })
+        .then(response => {
+            if (!response.ok) throw new Error('删除失败');
+            location.reload();
+        })
+        .catch(error => {
+            alert('错误: ' + error.message);
+        });
+    }
+}
+
+function closeRouteModal() {
+    document.getElementById('routeModal').classList.remove('show');
+}
+
+document.getElementById('routeModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeRouteModal();
+    }
+});
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block title %}同步监控 - CDN 防御系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h2>同步监控</h2>
+        <p>监控 etcd 配置同步状态</p>
+    </div>
+    <button class="btn btn-primary" onclick="refreshSync()">刷新同步</button>
+</div>
+
+<!-- 节点状态 -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">节点同步状态</span>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>节点 ID</th>
+                    <th>etcd 连接</th>
+                    <th>最后同步时间</th>
+                    <th>状态</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td id="nodeId">node-1</td>
+                    <td>
+                        <span id="etcdStatus" class="tag tag-danger">检查中...</span>
+                    </td>
+                    <td id="lastSync">-</td>
+                    <td>
+                        <span id="syncStatus" class="tag tag-warning">检查中...</span>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 同步日志 -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">同步日志</span>
+    </div>
+
+    <div id="syncLogs" style="background-color: #f5f5f5; padding: 15px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12px; max-height: 300px; overflow-y: auto;">
+        <div style="color: #909399;">日志加载中...</div>
+    </div>
+</div>
+
+<!-- etcd 连接信息 -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">etcd 连接信息</span>
+    </div>
+
+    <div style="padding: 15px; background-color: #f9f9f9; border-radius: 4px;">
+        <p><strong>主机:</strong> <span id="etcdHost">localhost</span></p>
+        <p><strong>端口:</strong> <span id="etcdPort">2379</span></p>
+        <p><strong>状态:</strong> <span id="etcdConnectionStatus" style="color: #f56c6c;">未连接</span></p>
+        <p><strong>最后更新:</strong> <span id="lastUpdate">-</span></p>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function loadSyncStatus() {
+    fetch('/defense/api/sync-status/')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('nodeId').textContent = data.node_id;
+            
+            // 更新 etcd 连接状态
+            const etcdStatus = data.etcd_connected ? '已连接' : '断开';
+            const etcdTag = data.etcd_connected ? 'success' : 'danger';
+            document.getElementById('etcdStatus').textContent = etcdStatus;
+            document.getElementById('etcdStatus').className = `tag tag-${etcdTag}`;
+            
+            // 更新最后同步时间
+            document.getElementById('lastSync').textContent = data.last_sync || '未同步';
+            
+            // 更新整体同步状态
+            const statusText = data.status === 'healthy' ? '正常' : '异常';
+            const statusTag = data.status === 'healthy' ? 'success' : 'danger';
+            document.getElementById('syncStatus').textContent = statusText;
+            document.getElementById('syncStatus').className = `tag tag-${statusTag}`;
+            
+            // 更新连接信息
+            const connectionText = data.etcd_connected ? '已连接' : '未连接';
+            const connectionColor = data.etcd_connected ? '#67c23a' : '#f56c6c';
+            document.getElementById('etcdConnectionStatus').textContent = connectionText;
+            document.getElementById('etcdConnectionStatus').style.color = connectionColor;
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+            
+            // 添加日志
+            addSyncLog(`[${new Date().toLocaleTimeString()}] 状态检查 - ${connectionText}`);
+        })
+        .catch(error => {
+            console.error('Error loading sync status:', error);
+            addSyncLog(`[${new Date().toLocaleTimeString()}] 错误: ${error.message}`);
+        });
+}
+
+function refreshSync() {
+    const button = event.target;
+    button.disabled = true;
+    button.textContent = '刷新中...';
+    
+    fetch('/defense/api/sync-refresh/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        addSyncLog(`[${new Date().toLocaleTimeString()}] ${data.message}`);
+        loadSyncStatus();
+    })
+    .catch(error => {
+        addSyncLog(`[${new Date().toLocaleTimeString()}] 错误: ${error.message}`);
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.textContent = '刷新同步';
+    });
+}
+
+function addSyncLog(message) {
+    const logsDiv = document.getElementById('syncLogs');
+    
+    // 如果是第一条日志，清空默认文本
+    if (logsDiv.textContent.includes('日志加载中')) {
+        logsDiv.innerHTML = '';
+    }
+    
+    const logEntry = document.createElement('div');
+    logEntry.style.marginBottom = '5px';
+    logEntry.style.color = '#333';
+    logEntry.textContent = message;
+    
+    logsDiv.insertBefore(logEntry, logsDiv.firstChild);
+    
+    // 保持最多 20 条日志
+    while (logsDiv.children.length > 20) {
+        logsDiv.removeChild(logsDiv.lastChild);
+    }
+}
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// 页面加载时立即加载状态，然后每 10 秒刷新一次
+window.addEventListener('load', () => {
+    loadSyncStatus();
+    setInterval(loadSyncStatus, 10000);
+});
+</script>
+{% endblock %}

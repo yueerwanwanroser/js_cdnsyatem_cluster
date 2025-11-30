@@ -87,7 +87,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Django 后端
+  # Django 后端 + 前端模板
   django:
     build:
       context: .
@@ -128,14 +128,15 @@ services:
       retries: 3
       start_period: 40s
 
-  # Nginx 前端 (生产)
+  # Nginx 反向代理 (生产前端)
   frontend:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.frontend
+    image: nginx:alpine
     container_name: cdn-frontend
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
     ports:
       - "80:80"
+      - "443:443"
     depends_on:
       - django
     networks:
@@ -146,24 +147,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 5s
-
-  # 前端开发服务器 (可选)
-  frontend-dev:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.frontend-dev
-    container_name: cdn-frontend-dev
-    ports:
-      - "5173:5173"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    environment:
-      VITE_API_URL: http://localhost:8000
-    networks:
-      - cdn-network
-    depends_on:
-      - django
 
   # Prometheus 监控
   prometheus:
