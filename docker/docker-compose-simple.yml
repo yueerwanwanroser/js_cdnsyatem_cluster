@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: cdn-postgres
+    environment:
+      POSTGRES_USER: cdnuser
+      POSTGRES_PASSWORD: cdnpass123
+      POSTGRES_DB: cdn_defense
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - cdn-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: cdn-redis
+    command: redis-server --appendonly yes --requirepass redispass123
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - cdn-network
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.7
+    container_name: cdn-etcd
+    environment:
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+    ports:
+      - "2379:2379"
+    networks:
+      - cdn-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: cdn-prometheus
+    volumes:
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - cdn-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: cdn-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: grafana123
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - cdn-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  cdn-network:
+    driver: bridge
