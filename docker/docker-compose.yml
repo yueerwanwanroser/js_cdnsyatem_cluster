@@ -1,153 +1,215 @@
 version: '3.8'
 
 services:
-  # Redis - 防御数据和缓存存储
-  redis:
-    image: redis:7-alpine
-    container_name: cdn-defense-redis
-    ports:
-      - "6379:6379"
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: cdn-postgres
+    environment:
+      POSTGRES_USER: cdnuser
+      POSTGRES_PASSWORD: cdnpass123
+      POSTGRES_DB: cdn_defense
     volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
     networks:
-      - cdn-defense-network
+      - cdn-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
+      test: ["CMD-SHELL", "pg_isready -U cdnuser -d cdn_defense"]
+      interval: 10s
+      timeout: 5s
       retries: 5
 
-  # APISIX - API 网关
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: cdn-redis
+    command: redis-server --appendonly yes --requirepass redispass123
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - cdn-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # etcd 全局配置中心
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.7
+    container_name: cdn-etcd
+    environment:
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+      ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd:2380
+      ETCD_INITIAL_CLUSTER: "default=http://etcd:2380"
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_CLUSTER_TOKEN: etcd-cluster
+      ETCD_HEARTBEAT_INTERVAL: 100
+      ETCD_ELECTION_INTERVAL: 1000
+    volumes:
+      - etcd_data:/etcd-data
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    networks:
+      - cdn-network
+    healthcheck:
+      test: ["CMD", "etcdctl", "--endpoints=http://etcd:2379", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # APISIX 网关
   apisix:
     image: apache/apisix:3.1-alpine
-    container_name: cdn-defense-apisix
+    container_name: cdn-apisix
+    volumes:
+      - ./docker/apisix_config.yaml:/usr/local/apisix/conf/config.yaml:ro
+      - ./apisix-plugins:/opt/apisix/plugins:ro
     ports:
       - "9080:9080"
       - "9443:9443"
       - "9180:9180"
-    environment:
-      - APISIX_LOG_LEVEL=info
-    volumes:
-      - ./docker/apisix_config.yaml:/usr/local/apisix/conf/config.yaml:ro
-      - ./apisix-plugins:/opt/apisix/plugins:ro
     depends_on:
       - redis
+      - etcd
     networks:
-      - cdn-defense-network
+      - cdn-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9180/apisix/admin/routes"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # etcd - APISIX 配置中心
-  etcd:
-    image: bitnami/etcd:3.5
-    container_name: cdn-defense-etcd
-    ports:
-      - "2379:2379"
-    environment:
-      - ETCD_ENABLE_V2=true
-      - ALLOW_NONE_AUTHENTICATION=yes
-    volumes:
-      - etcd_data:/bitnami/etcd
-    networks:
-      - cdn-defense-network
-    healthcheck:
-      test: ["CMD", "etcdctl", "--endpoints=http://localhost:2379", "endpoint", "health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # 防御引擎 API
-  defense-api:
+  # Django 后端
+  django:
     build:
       context: .
-      dockerfile: docker/Dockerfile.defense-api
-    container_name: cdn-defense-api
-    ports:
-      - "5000:5000"
+      dockerfile: docker/Dockerfile.django
+    container_name: cdn-django
     environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - NODE_ID=node-1
-      - API_PORT=5000
-      - DEBUG=false
+      DEBUG: "False"
+      ALLOWED_HOSTS: "*"
+      SECRET_KEY: "django-insecure-supersecretkey123!@#$%"
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: cdn_defense
+      DB_USER: cdnuser
+      DB_PASSWORD: cdnpass123
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_URL: redis://:redispass123@redis:6379/0
+      CACHE_URL: redis://:redispass123@redis:6379/1
+      ETCD_HOST: etcd
+      ETCD_PORT: "2379"
     volumes:
-      - ./backend:/app/backend
+      - ./backend:/app
+      - ./docker/entrypoint.sh:/app/scripts/entrypoint.sh
+    ports:
+      - "8000:8000"
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      etcd:
+        condition: service_healthy
     networks:
-      - cdn-defense-network
+      - cdn-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/sync-status/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
-  # 防御引擎 API (节点2)
-  defense-api-2:
+  # Nginx 前端 (生产)
+  frontend:
     build:
       context: .
-      dockerfile: docker/Dockerfile.defense-api
-    container_name: cdn-defense-api-2
+      dockerfile: docker/Dockerfile.frontend
+    container_name: cdn-frontend
     ports:
-      - "5001:5000"
-    environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - NODE_ID=node-2
-      - API_PORT=5000
-      - DEBUG=false
-    volumes:
-      - ./backend:/app/backend
+      - "80:80"
     depends_on:
-      - redis
+      - django
     networks:
-      - cdn-defense-network
+      - cdn-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
-  # 监控 Prometheus
+  # 前端开发服务器 (可选)
+  frontend-dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend-dev
+    container_name: cdn-frontend-dev
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      VITE_API_URL: http://localhost:8000
+    networks:
+      - cdn-network
+    depends_on:
+      - django
+
+  # Prometheus 监控
   prometheus:
     image: prom/prometheus:latest
-    container_name: cdn-defense-prometheus
+    container_name: cdn-prometheus
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
     ports:
       - "9090:9090"
-    volumes:
-      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
     networks:
-      - cdn-defense-network
+      - cdn-network
+    depends_on:
+      - django
 
-  # 可视化 Grafana
+  # Grafana 仪表板
   grafana:
     image: grafana/grafana:latest
-    container_name: cdn-defense-grafana
-    ports:
-      - "3000:3000"
+    container_name: cdn-grafana
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: grafana123
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./docker/grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - cdn-network
     depends_on:
       - prometheus
-    networks:
-      - cdn-defense-network
 
 volumes:
+  postgres_data:
+    driver: local
   redis_data:
+    driver: local
   etcd_data:
+    driver: local
   prometheus_data:
+    driver: local
   grafana_data:
+    driver: local
 
 networks:
-  cdn-defense-network:
+  cdn-network:
     driver: bridge
