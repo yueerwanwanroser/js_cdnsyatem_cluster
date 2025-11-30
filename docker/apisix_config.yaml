@@ -1,0 +1,46 @@
+# APISIX 配置文件
+
+apisix:
+  node_listen: 9080
+  enable_admin: true
+  admin_listen:
+    ip: "0.0.0.0"
+    port: 9180
+  stream_proxy:
+    tcp:
+      - 9100
+  proxy_mode: http
+  log_level: info
+
+etcd:
+  host:
+    - "http://etcd:2379"
+  prefix: "/apisix"
+  timeout: 30
+
+plugins:
+  - cdn-defense
+  - cors
+  - limit-conn
+  - limit-req
+  - basic-auth
+  - jwt-auth
+  - key-auth
+  - oauth2
+  - proxy-rewrite
+  - grpc-web
+
+plugin_attr:
+  limit-req:
+    burst: 100
+    default_burst: 100
+    default_rate: 100
+
+nginx_config:
+  http:
+    lua_shared_dicts:
+      internal-status: 10m
+      plugin-limit-req: 10m
+      plugin-limit-conn: 10m
+      upstream-healthcheck: 32m
+      worker-events: 10m

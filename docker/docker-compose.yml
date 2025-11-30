@@ -1,0 +1,153 @@
+version: '3.8'
+
+services:
+  # Redis - 防御数据和缓存存储
+  redis:
+    image: redis:7-alpine
+    container_name: cdn-defense-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - cdn-defense-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # APISIX - API 网关
+  apisix:
+    image: apache/apisix:3.1-alpine
+    container_name: cdn-defense-apisix
+    ports:
+      - "9080:9080"
+      - "9443:9443"
+      - "9180:9180"
+    environment:
+      - APISIX_LOG_LEVEL=info
+    volumes:
+      - ./docker/apisix_config.yaml:/usr/local/apisix/conf/config.yaml:ro
+      - ./apisix-plugins:/opt/apisix/plugins:ro
+    depends_on:
+      - redis
+    networks:
+      - cdn-defense-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9180/apisix/admin/routes"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # etcd - APISIX 配置中心
+  etcd:
+    image: bitnami/etcd:3.5
+    container_name: cdn-defense-etcd
+    ports:
+      - "2379:2379"
+    environment:
+      - ETCD_ENABLE_V2=true
+      - ALLOW_NONE_AUTHENTICATION=yes
+    volumes:
+      - etcd_data:/bitnami/etcd
+    networks:
+      - cdn-defense-network
+    healthcheck:
+      test: ["CMD", "etcdctl", "--endpoints=http://localhost:2379", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 防御引擎 API
+  defense-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.defense-api
+    container_name: cdn-defense-api
+    ports:
+      - "5000:5000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - NODE_ID=node-1
+      - API_PORT=5000
+      - DEBUG=false
+    volumes:
+      - ./backend:/app/backend
+    depends_on:
+      - redis
+    networks:
+      - cdn-defense-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 防御引擎 API (节点2)
+  defense-api-2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.defense-api
+    container_name: cdn-defense-api-2
+    ports:
+      - "5001:5000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - NODE_ID=node-2
+      - API_PORT=5000
+      - DEBUG=false
+    volumes:
+      - ./backend:/app/backend
+    depends_on:
+      - redis
+    networks:
+      - cdn-defense-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 监控 Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: cdn-defense-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    networks:
+      - cdn-defense-network
+
+  # 可视化 Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: cdn-defense-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - cdn-defense-network
+
+volumes:
+  redis_data:
+  etcd_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  cdn-defense-network:
+    driver: bridge
